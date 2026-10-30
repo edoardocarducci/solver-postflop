@@ -270,6 +270,26 @@
                       strTmp.slice(strTmp.indexOf(".") + 1)
                     }}</span>
                   </span>
+                  <div
+                    v-else-if="column.type === 'percentage' && column.label === 'EQ'"
+                    class="flex flex-col items-end w-14 mx-auto"
+                    :data-set="
+                      (strTmp = toFixed1(item[columnIndex(column)] * 100))
+                    "
+                  >
+                    <div class="w-full bg-slate-300 rounded-full h-1.5 overflow-hidden mb-0.5 border border-slate-400/40">
+                      <div
+                        class="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full"
+                        :style="{
+                          width: `${Math.min(100, Math.max(0, item[columnIndex(column)] * 100))}%`,
+                        }"
+                      ></div>
+                    </div>
+                    <div>
+                      <span>{{ strTmp.slice(0, -1) }}</span>
+                      <span class="text-xs">{{ strTmp.slice(-1) }}%</span>
+                    </div>
+                  </div>
                   <span
                     v-else-if="
                       column.type === 'weight' ||
@@ -353,6 +373,7 @@ import {
   suitLetters,
   cardText,
   cardPairOrder,
+  cardPairCellIndex,
   toFixed1,
   toFixed,
   toFixedAdaptive,
@@ -481,6 +502,7 @@ interface Props {
   displayPlayer: "oop" | "ip";
   hoverContent?: HoverContent | null;
   scrollTarget?: number | null;
+  filteredCells?: Set<number> | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -491,6 +513,7 @@ const props = withDefaults(defineProps<Props>(), {
   chanceReports: null,
   hoverContent: null,
   scrollTarget: null,
+  filteredCells: null,
 });
 
 const displayOptions =
@@ -659,7 +682,8 @@ const columns = computed(() => {
       const spot = props.selectedSpot as SpotPlayer;
       for (let i = 0; i < numActions.value; ++i) {
         const j = numActions.value - i - 1; // reverse order
-        const action = spot.actions[j];
+        const action = spot?.actions?.[j];
+        if (!action) continue;
         const label =
           action.amount === "0"
             ? action.name
@@ -687,7 +711,8 @@ const columns = computed(() => {
       const spot = props.selectedSpot as SpotPlayer;
       for (let i = 0; i < numActions.value; ++i) {
         const j = numActions.value - i - 1;
-        const action = spot.actions[j];
+        const action = spot?.actions?.[j];
+        if (!action) continue;
         const label =
           action.amount === "0"
             ? action.name
@@ -722,6 +747,14 @@ const resultsFiltered = computed(() => {
       const weight = results.weights[playerIndex][index];
       const normalizer = results.normalizer[playerIndex][index];
       if (weight === 0 || normalizer === 0) return null;
+
+      if (props.filteredCells && props.filteredCells.size > 0) {
+        const pair = cards[index];
+        const c1 = pair & 0xff;
+        const c2 = pair >>> 8;
+        const { row, col } = cardPairCellIndex(c1, c2);
+        if (!props.filteredCells.has(row * 13 + col)) return null;
+      }
 
       const ret: number[] = [];
 
@@ -901,7 +934,7 @@ const summary = computed(() => {
 
   // EQR is not the average
   const playerIndex = props.displayPlayer === "oop" ? 0 : 1;
-  const eqrBase = props.results.eqrBase[playerIndex];
+  const eqrBase = props.results?.eqrBase?.[playerIndex] ?? 5;
   ret[INDEX_EQR] = ret[INDEX_EV] / (eqrBase * ret[INDEX_EQUITY]);
   if (!isFinite(ret[INDEX_EQR])) ret[INDEX_EQR] = Number.NaN;
 
@@ -911,6 +944,7 @@ const summary = computed(() => {
 const actionColors = computed(() => {
   if (numActions.value === 0) return [];
   const spot = props.selectedSpot as SpotPlayer;
+  if (!spot || !spot.actions) return [];
   return spot.actions.map((a) => a.color).reverse();
 });
 
@@ -971,9 +1005,10 @@ const exportSummary = async () => {
     }
 
     if (numActions.value > 0) {
-      const actions = (props.selectedSpot as SpotPlayer).actions;
+      const actions = (props.selectedSpot as SpotPlayer)?.actions || [];
       for (let i = actions.length - 1; i >= 0; --i) {
         const action = actions[i];
+        if (!action) continue;
         const amount = action.amount === "0" ? "" : ` ${action.amount}`;
         ary.push(`${action.name}${amount} %`);
         ary.push(`${action.name}${amount} EV`);
@@ -1004,9 +1039,10 @@ const exportSummary = async () => {
     const ary = [columns.value[0].label, "Combos", "Equity", "EV", "EQR"];
 
     if (numActions.value > 0) {
-      const actions = (props.selectedSpot as SpotPlayer).actions;
+      const actions = (props.selectedSpot as SpotPlayer)?.actions || [];
       for (let i = actions.length - 1; i >= 0; --i) {
         const action = actions[i];
+        if (!action) continue;
         const amount = action.amount === "0" ? "" : ` ${action.amount}`;
         ary.push(`${action.name}${amount} %`);
       }

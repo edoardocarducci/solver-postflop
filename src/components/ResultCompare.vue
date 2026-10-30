@@ -213,10 +213,12 @@ const ev = computed(() => {
 
 const eqr = computed(() => {
   const results = props.results;
-  if (results.isEmpty) return [Number.NaN, Number.NaN];
+  if (!results || results.isEmpty) return [Number.NaN, Number.NaN];
+  const eqr0 = results.eqrBase?.[0] ?? 5;
+  const eqr1 = results.eqrBase?.[1] ?? 5;
   const ret = [
-    ev.value[0] / (results.eqrBase[0] * equity.value[0]),
-    ev.value[1] / (results.eqrBase[1] * equity.value[1]),
+    ev.value[0] / (eqr0 * equity.value[0]),
+    ev.value[1] / (eqr1 * equity.value[1]),
   ];
   if (!isFinite(ret[0])) ret[0] = Number.NaN;
   if (!isFinite(ret[1])) ret[1] = Number.NaN;

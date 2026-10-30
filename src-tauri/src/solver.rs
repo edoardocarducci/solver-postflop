@@ -3,6 +3,10 @@ use postflop_solver::*;
 use rayon::ThreadPool;
 use serde::Serialize;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub static IS_GAME_INITIALIZED: AtomicBool = AtomicBool::new(false);
+pub static IS_GAME_FINALIZED: AtomicBool = AtomicBool::new(false);
 
 #[inline]
 fn decode_action(action: &str) -> Action {
@@ -168,12 +172,23 @@ pub fn game_init(
     }
 
     let mut game = game_state.lock().unwrap();
-    game.update_config(card_config, action_tree).err()
+    let err = game.update_config(card_config, action_tree).err();
+    if err.is_none() {
+        IS_GAME_INITIALIZED.store(true, Ordering::SeqCst);
+        IS_GAME_FINALIZED.store(false, Ordering::SeqCst);
+    }
+    err
 }
 
 #[tauri::command]
 pub fn game_private_cards(game_state: tauri::State<Mutex<PostFlopGame>>) -> [Vec<u16>; 2] {
-    let game = game_state.lock().unwrap();
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return [Vec::new(), Vec::new()];
+    }
+    let game = match game_state.lock() {
+        Ok(g) => g,
+        Err(_) => return [Vec::new(), Vec::new()],
+    };
     let convert = |player: usize| {
         game.private_cards(player)
             .iter()
@@ -185,12 +200,18 @@ pub fn game_private_cards(game_state: tauri::State<Mutex<PostFlopGame>>) -> [Vec
 
 #[tauri::command]
 pub fn game_memory_usage(game_state: tauri::State<Mutex<PostFlopGame>>) -> (u64, u64) {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return (0, 0);
+    }
     let game = game_state.lock().unwrap();
     game.memory_usage()
 }
 
 #[tauri::command]
 pub fn game_memory_usage_bunching(game_state: tauri::State<Mutex<PostFlopGame>>) -> u64 {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return 0;
+    }
     let game = game_state.lock().unwrap();
     game.memory_usage_bunching()
 }
@@ -200,6 +221,10 @@ pub fn game_allocate_memory(
     game_state: tauri::State<Mutex<PostFlopGame>>,
     enable_compression: bool,
 ) {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return;
+    }
+    IS_GAME_FINALIZED.store(false, Ordering::SeqCst);
     let mut game = game_state.lock().unwrap();
     game.allocate_memory(enable_compression);
 }
@@ -209,6 +234,9 @@ pub fn game_set_bunching(
     bunching_state: tauri::State<Mutex<Option<BunchingData>>>,
     game_state: tauri::State<Mutex<PostFlopGame>>,
 ) -> Option<String> {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return None;
+    }
     let bunching_data = bunching_state.lock().unwrap();
     let bunching_data = bunching_data.as_ref().unwrap();
     let mut game = game_state.lock().unwrap();
@@ -221,6 +249,9 @@ pub fn game_solve_step(
     pool_state: tauri::State<Mutex<ThreadPool>>,
     current_iteration: u32,
 ) {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return;
+    }
     let game = game_state.lock().unwrap();
     let pool = pool_state.lock().unwrap();
     pool.install(|| solve_step(&*game, current_iteration));
@@ -231,6 +262,9 @@ pub fn game_exploitability(
     game_state: tauri::State<Mutex<PostFlopGame>>,
     pool_state: tauri::State<Mutex<ThreadPool>>,
 ) -> f32 {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return 0.0;
+    }
     let game = game_state.lock().unwrap();
     let pool = pool_state.lock().unwrap();
     pool.install(|| compute_exploitability(&*game))
@@ -241,12 +275,19 @@ pub fn game_finalize(
     game_state: tauri::State<Mutex<PostFlopGame>>,
     pool_state: tauri::State<Mutex<ThreadPool>>,
 ) {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return;
+    }
     let pool = pool_state.lock().unwrap();
     pool.install(|| finalize(&mut *game_state.lock().unwrap()));
+    IS_GAME_FINALIZED.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
 pub fn game_apply_history(game_state: tauri::State<Mutex<PostFlopGame>>, history: Vec<usize>) {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return;
+    }
     let mut game = game_state.lock().unwrap();
     game.apply_history(&history);
 }
@@ -256,6 +297,9 @@ pub fn game_total_bet_amount(
     game_state: tauri::State<Mutex<PostFlopGame>>,
     append: Vec<isize>,
 ) -> [i32; 2] {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return [0, 0];
+    }
     let mut game = game_state.lock().unwrap();
     if append.is_empty() {
         return game.total_bet_amount();
@@ -295,6 +339,9 @@ pub fn game_actions_after(
     game_state: tauri::State<Mutex<PostFlopGame>>,
     append: Vec<isize>,
 ) -> Vec<String> {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return Vec::new();
+    }
     let mut game = game_state.lock().unwrap();
     if append.is_empty() {
         return actions(&game);
@@ -310,6 +357,9 @@ pub fn game_actions_after(
 
 #[tauri::command]
 pub fn game_possible_cards(game_state: tauri::State<Mutex<PostFlopGame>>) -> u64 {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) {
+        return 0;
+    }
     let game = game_state.lock().unwrap();
     game.possible_cards()
 }
@@ -350,84 +400,131 @@ pub struct GameResultsResponse {
 
 #[tauri::command]
 pub fn game_get_results(game_state: tauri::State<Mutex<PostFlopGame>>) -> GameResultsResponse {
-    let mut game = game_state.lock().unwrap();
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) || !IS_GAME_FINALIZED.load(Ordering::SeqCst) {
+        return GameResultsResponse {
+            current_player: "oop".to_string(),
+            num_actions: 0,
+            is_empty: 0,
+            eqr_base: [0, 0],
+            weights: [Vec::new(), Vec::new()],
+            normalizer: [Vec::new(), Vec::new()],
+            equity: [Vec::new(), Vec::new()],
+            ev: [Vec::new(), Vec::new()],
+            eqr: [Vec::new(), Vec::new()],
+            strategy: Vec::new(),
+            action_ev: Vec::new(),
+        };
+    }
 
-    let total_bet_amount = game.total_bet_amount();
-    let pot_base = game.tree_config().starting_pot + total_bet_amount.iter().min().unwrap();
-    let eqr_base = [
-        pot_base + total_bet_amount[0],
-        pot_base + total_bet_amount[1],
-    ];
+    let mut game = match game_state.lock() {
+        Ok(g) => g,
+        Err(_) => return GameResultsResponse {
+            current_player: "oop".to_string(),
+            num_actions: 0,
+            is_empty: 0,
+            eqr_base: [0, 0],
+            weights: [Vec::new(), Vec::new()],
+            normalizer: [Vec::new(), Vec::new()],
+            equity: [Vec::new(), Vec::new()],
+            ev: [Vec::new(), Vec::new()],
+            eqr: [Vec::new(), Vec::new()],
+            strategy: Vec::new(),
+            action_ev: Vec::new(),
+        },
+    };
 
-    let trunc = |&w: &f32| if w < 0.0005 { 0.0 } else { round(w as f64) };
-    let weights = [
-        game.weights(0).iter().map(trunc).collect::<Vec<_>>(),
-        game.weights(1).iter().map(trunc).collect::<Vec<_>>(),
-    ];
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let total_bet_amount = game.total_bet_amount();
+        let pot_base = game.tree_config().starting_pot + total_bet_amount.iter().min().unwrap();
+        let eqr_base = [
+            pot_base + total_bet_amount[0],
+            pot_base + total_bet_amount[1],
+        ];
 
-    let is_empty = |player: usize| weights[player].iter().all(|&w| w == 0.0);
-    let is_empty_flag = is_empty(0) as i32 + 2 * is_empty(1) as i32;
+        let trunc = |&w: &f32| if w < 0.0005 { 0.0 } else { round(w as f64) };
+        let weights = [
+            game.weights(0).iter().map(trunc).collect::<Vec<_>>(),
+            game.weights(1).iter().map(trunc).collect::<Vec<_>>(),
+        ];
 
-    let mut normalizer = [Vec::new(), Vec::new()];
-    let mut equity = [Vec::new(), Vec::new()];
-    let mut ev = [Vec::new(), Vec::new()];
-    let mut eqr = [Vec::new(), Vec::new()];
+        let is_empty = |player: usize| weights[player].iter().all(|&w| w == 0.0);
+        let is_empty_flag = is_empty(0) as i32 + 2 * is_empty(1) as i32;
 
-    if is_empty_flag > 0 {
-        normalizer[0].extend(weights[0].iter());
-        normalizer[1].extend(weights[1].iter());
-    } else {
-        game.cache_normalized_weights();
+        let mut normalizer = [Vec::new(), Vec::new()];
+        let mut equity = [Vec::new(), Vec::new()];
+        let mut ev = [Vec::new(), Vec::new()];
+        let mut eqr = [Vec::new(), Vec::new()];
 
-        normalizer[0].extend(round_iter(game.normalized_weights(0).iter()));
-        normalizer[1].extend(round_iter(game.normalized_weights(1).iter()));
+        if is_empty_flag > 0 {
+            normalizer[0].extend(weights[0].iter());
+            normalizer[1].extend(weights[1].iter());
+        } else {
+            game.cache_normalized_weights();
 
-        let equity_raw = [game.equity(0), game.equity(1)];
-        let ev_raw = [game.expected_values(0), game.expected_values(1)];
+            normalizer[0].extend(round_iter(game.normalized_weights(0).iter()));
+            normalizer[1].extend(round_iter(game.normalized_weights(1).iter()));
 
-        equity[0].extend(round_iter(equity_raw[0].iter()));
-        equity[1].extend(round_iter(equity_raw[1].iter()));
-        ev[0].extend(round_iter(ev_raw[0].iter()));
-        ev[1].extend(round_iter(ev_raw[1].iter()));
+            let equity_raw = [game.equity(0), game.equity(1)];
+            let ev_raw = [game.expected_values(0), game.expected_values(1)];
 
-        for player in 0..2 {
-            let pot = eqr_base[player] as f64;
-            for (&eq, &ev) in equity_raw[player].iter().zip(ev_raw[player].iter()) {
-                let (eq, ev) = (eq as f64, ev as f64);
-                if eq < 5e-7 {
-                    eqr[player].push(ev / 0.0);
-                } else {
-                    eqr[player].push(round(ev / (pot * eq)));
+            equity[0].extend(round_iter(equity_raw[0].iter()));
+            equity[1].extend(round_iter(equity_raw[1].iter()));
+            ev[0].extend(round_iter(ev_raw[0].iter()));
+            ev[1].extend(round_iter(ev_raw[1].iter()));
+
+            for player in 0..2 {
+                let pot = eqr_base[player] as f64;
+                for (&eq, &ev) in equity_raw[player].iter().zip(ev_raw[player].iter()) {
+                    let (eq, ev) = (eq as f64, ev as f64);
+                    if eq < 5e-7 {
+                        eqr[player].push(ev / 0.0);
+                    } else {
+                        eqr[player].push(round(ev / (pot * eq)));
+                    }
                 }
             }
         }
-    }
 
-    let mut strategy = Vec::new();
-    let mut action_ev = Vec::new();
+        let mut strategy = Vec::new();
+        let mut action_ev = Vec::new();
 
-    if !game.is_terminal_node() && !game.is_chance_node() {
-        strategy.extend(round_iter(game.strategy().iter()));
-        if is_empty_flag == 0 {
-            action_ev.extend(round_iter(
-                game.expected_values_detail(game.current_player()).iter(),
-            ));
+        if !game.is_terminal_node() && !game.is_chance_node() {
+            strategy.extend(round_iter(game.strategy().iter()));
+            if is_empty_flag == 0 {
+                action_ev.extend(round_iter(
+                    game.expected_values_detail(game.current_player()).iter(),
+                ));
+            }
         }
-    }
 
-    GameResultsResponse {
-        current_player: current_player(&game),
-        num_actions: num_actions(&game),
-        is_empty: is_empty_flag,
-        eqr_base,
-        weights,
-        normalizer,
-        equity,
-        ev,
-        eqr,
-        strategy,
-        action_ev,
-    }
+        GameResultsResponse {
+            current_player: current_player(&game),
+            num_actions: num_actions(&game),
+            is_empty: is_empty_flag,
+            eqr_base,
+            weights,
+            normalizer,
+            equity,
+            ev,
+            eqr,
+            strategy,
+            action_ev,
+        }
+    }));
+
+    res.unwrap_or_else(|_| GameResultsResponse {
+        current_player: "oop".to_string(),
+        num_actions: 0,
+        is_empty: 0,
+        eqr_base: [0, 0],
+        weights: [Vec::new(), Vec::new()],
+        normalizer: [Vec::new(), Vec::new()],
+        equity: [Vec::new(), Vec::new()],
+        ev: [Vec::new(), Vec::new()],
+        eqr: [Vec::new(), Vec::new()],
+        strategy: Vec::new(),
+        action_ev: Vec::new(),
+    })
 }
 
 #[derive(Serialize)]
@@ -446,6 +543,16 @@ pub fn game_get_chance_reports(
     append: Vec<isize>,
     num_actions: usize,
 ) -> GameChanceReportsResponse {
+    if !IS_GAME_INITIALIZED.load(Ordering::SeqCst) || !IS_GAME_FINALIZED.load(Ordering::SeqCst) {
+        return GameChanceReportsResponse {
+            status: vec![0; 52],
+            combos: [vec![0.0; 52], vec![0.0; 52]],
+            equity: [vec![0.0; 52], vec![0.0; 52]],
+            ev: [vec![0.0; 52], vec![0.0; 52]],
+            eqr: [vec![0.0; 52], vec![0.0; 52]],
+            strategy: vec![0.0; num_actions * 52],
+        };
+    }
     let mut game = game_state.lock().unwrap();
     let history = game.history().to_vec();
 
@@ -531,4 +638,26 @@ pub fn game_get_chance_reports(
         eqr,
         strategy,
     }
+}
+
+#[tauri::command(async)]
+pub fn save_solved_spot(
+    game_state: tauri::State<Mutex<PostFlopGame>>,
+    filepath: String,
+) -> Result<(), String> {
+    let game = game_state.lock().unwrap();
+    postflop_solver::save_data_to_file(&*game, "", &filepath, None).map_err(|e| format!("{:?}", e))
+}
+
+#[tauri::command(async)]
+pub fn load_solved_spot(
+    game_state: tauri::State<Mutex<PostFlopGame>>,
+    filepath: String,
+) -> Result<(), String> {
+    let mut game = game_state.lock().unwrap();
+    let (loaded_game, _) = postflop_solver::load_data_from_file(&filepath, None).map_err(|e| format!("{:?}", e))?;
+    *game = loaded_game;
+    IS_GAME_INITIALIZED.store(true, Ordering::SeqCst);
+    IS_GAME_FINALIZED.store(true, Ordering::SeqCst);
+    Ok(())
 }

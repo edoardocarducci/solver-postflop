@@ -47,12 +47,12 @@
       </table>
 
       <div class="mt-5">
-        <div class="flex">
+        <div class="flex items-center gap-2">
           <input
             v-model="rangeText"
             type="text"
             :class="
-              'flex-grow mr-6 px-2 py-1 rounded-lg text-sm ' +
+              'flex-grow mr-2 px-2 py-1 rounded-lg text-sm ' +
               (rangeTextError ? 'input-error' : '')
             "
             @focus="($event.target as HTMLInputElement).select()"
@@ -60,14 +60,23 @@
           />
 
           <button
+            class="button-base bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow flex items-center gap-1.5 px-3 py-1.5 whitespace-nowrap"
+            title="Scegli un range 6-Max Cash 100bb predefinito"
+            @click="showQuickRanges = true"
+          >
+            <span>⚡</span>
+            <span>Range 6-Max 100bb</span>
+          </button>
+
+          <button
             v-if="player >= 2"
-            class="mr-4 button-base button-blue"
+            class="button-base button-blue whitespace-nowrap"
             @click="invertRange"
           >
             Invert
           </button>
 
-          <button class="button-base button-blue" @click="clearRange">
+          <button class="button-base button-blue whitespace-nowrap" @click="clearRange">
             Clear
           </button>
         </div>
@@ -131,6 +140,14 @@
         </button>
       </div>
     </div>
+
+    <!-- 6-Max Quick Range Library Modal -->
+    <QuickRangeModal
+      v-if="showQuickRanges"
+      :player="player"
+      @close="showQuickRanges = false"
+      @apply-range="applyQuickRange"
+    />
   </div>
 </template>
 
@@ -141,6 +158,7 @@ import { ranks, trimRegex, rangeRegex } from "../utils";
 import * as invokes from "../invokes";
 
 import DbItemPicker from "./DbItemPicker.vue";
+import QuickRangeModal from "./QuickRangeModal.vue";
 
 const yellow500 = "#eab308";
 
@@ -161,6 +179,7 @@ const rangeText = ref(props.defaultText);
 const rangeTextError = ref("");
 const weight = ref(100);
 const numCombos = ref(0);
+const showQuickRanges = ref(false);
 
 let draggingMode: DraggingMode = "none";
 
@@ -269,5 +288,10 @@ const invertRange = async () => {
 const loadRange = (rangeStr: unknown) => {
   rangeText.value = String(rangeStr);
   onRangeTextChange();
+};
+
+const applyQuickRange = async (newRangeStr: string) => {
+  rangeText.value = newRangeStr;
+  await onRangeTextChange();
 };
 </script>

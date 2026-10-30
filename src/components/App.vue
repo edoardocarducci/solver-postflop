@@ -13,6 +13,8 @@
         class="flex-grow my-4 px-6 pt-2 overflow-y-auto"
         style="height: calc(100% - 2rem)"
       >
+        <HUSpotSelector />
+
         <div class="flex">
           <div
             :class="
@@ -54,6 +56,13 @@
     >
       <ResultViewer />
     </div>
+
+    <div
+      v-show="store.navView === 'trainer'"
+      style="height: calc(max(100%, 720px) - 2.5rem)"
+    >
+      <TrainerView />
+    </div>
   </div>
 </template>
 
@@ -70,6 +79,8 @@ import BunchingEffect from "./BunchingEffect.vue";
 import RunSolver from "./RunSolver.vue";
 import AboutPage from "./AboutPage.vue";
 import ResultViewer from "./ResultViewer.vue";
+import HUSpotSelector from "./HUSpotSelector.vue";
+import TrainerView from "./TrainerView.vue";
 
 const store = useStore();
 const header = computed(() => store.headers[store.sideView].join(" > "));

@@ -15,10 +15,15 @@
         <td
           v-for="col in 13"
           :key="col"
-          :class="
-            'relative border border-black ' +
-            (clickedCellIndex === cellIndex(row, col) ? 'clicked-cell' : '')
-          "
+          :class="[
+            'relative border border-black transition-all duration-150',
+            clickedCellIndex === cellIndex(row, col) ? 'clicked-cell' : '',
+            filteredCells && filteredCells.size > 0
+              ? filteredCells.has(cellIndex(row, col))
+                ? 'ring-2 ring-blue-400 z-20 brightness-110 shadow-md'
+                : 'opacity-25 grayscale brightness-75'
+              : ''
+          ]"
           @click="onClickCell(row, col)"
           @mouseenter="onMouseEnterCell(row, col)"
         >
@@ -145,6 +150,7 @@ const props = defineProps<{
   displayOptions: DisplayOptions;
   displayPlayer: "oop" | "ip";
   isCompareMode: boolean;
+  filteredCells?: Set<number> | null;
 }>();
 
 const emit = defineEmits<{
@@ -291,7 +297,7 @@ const cellContent = computed(() => {
   const playerIndex = props.displayPlayer === "oop" ? 0 : 1;
 
   const isEmpty = results.isEmpty;
-  const eqrBase = results.eqrBase[playerIndex];
+  const eqrBase = results.eqrBase?.[playerIndex] ?? (config.startingPot || 5);
   const barHeight = options.barHeight;
   const isSuitIndividual = options.suit === "individual";
 
@@ -299,23 +305,21 @@ const cellContent = computed(() => {
   let middle = 0;
   let highest = 0;
 
-  if (numActions.value === 0) {
-    if (options.contentBasics === "eq") {
-      lowest = 0;
-      middle = 0.5;
-      highest = 1;
-    } else if (options.contentBasics === "ev") {
-      const amounts = props.totalBetAmount;
-      const amountSum = Math.min(...amounts) + amounts[playerIndex];
-      const pot = config.startingPot + amountSum;
-      lowest = 0;
-      middle = pot / 2;
-      highest = pot;
-    } else if (options.contentBasics === "eqr") {
-      lowest = 0;
-      middle = 1;
-      highest = 2;
-    }
+  if (options.contentBasics === "eq") {
+    lowest = 0;
+    middle = 0.5;
+    highest = 1;
+  } else if (options.contentBasics === "ev") {
+    const amounts = props.totalBetAmount;
+    const amountSum = Math.min(...amounts) + amounts[playerIndex];
+    const pot = config.startingPot + amountSum;
+    lowest = 0;
+    middle = pot / 2;
+    highest = pot;
+  } else if (options.contentBasics === "eqr") {
+    lowest = 0;
+    middle = 1;
+    highest = 2;
   }
 
   return cellData.value.map((cell, i) => {
@@ -335,7 +339,13 @@ const cellContent = computed(() => {
         height = 1;
       }
 
-      if (numActions.value === 0) {
+      const showHeatmap =
+        numActions.value === 0 ||
+        options.contentBasics === "eq" ||
+        options.contentBasics === "ev" ||
+        options.contentBasics === "eqr";
+
+      if (showHeatmap) {
         let color;
         if (isEmpty || options.contentBasics === "default") {
           color = yellow500;
@@ -427,7 +437,7 @@ const cellValueText = computed(() => {
       value = evSum / normalizerSum;
     } else {
       const playerIndex = props.displayPlayer === "oop" ? 0 : 1;
-      const eqrBase = props.results.eqrBase[playerIndex];
+      const eqrBase = props.results.eqrBase?.[playerIndex] ?? (config.startingPot || 5);
       value = evSum / (eqrBase * equitySum);
     }
 

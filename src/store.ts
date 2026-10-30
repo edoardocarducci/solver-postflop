@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { sanitizeBetString } from "./utils";
 
-export type NavView = "solver" | "results";
+export type NavView = "solver" | "results" | "trainer";
 
 export type SideView =
   | "oop-range"
@@ -121,26 +121,26 @@ export const useStore = defineStore("app", {
 
 export const useConfigStore = defineStore("config", {
   state: () => ({
-    board: [] as number[],
-    startingPot: 20,
-    effectiveStack: 100,
+    board: [48, 36, 12] as number[], // Default Ks Td 4s
+    startingPot: 5,
+    effectiveStack: 98,
     rakePercent: 0,
     rakeCap: 0,
     donkOption: false,
-    oopFlopBet: "",
-    oopFlopRaise: "",
-    oopTurnBet: "",
-    oopTurnRaise: "",
+    oopFlopBet: "33, 75",
+    oopFlopRaise: "e",
+    oopTurnBet: "66",
+    oopTurnRaise: "e",
     oopTurnDonk: "",
-    oopRiverBet: "",
-    oopRiverRaise: "",
+    oopRiverBet: "66",
+    oopRiverRaise: "e",
     oopRiverDonk: "",
-    ipFlopBet: "",
-    ipFlopRaise: "",
-    ipTurnBet: "",
-    ipTurnRaise: "",
-    ipRiverBet: "",
-    ipRiverRaise: "",
+    ipFlopBet: "33, 75",
+    ipFlopRaise: "e",
+    ipTurnBet: "66",
+    ipTurnRaise: "e",
+    ipRiverBet: "66",
+    ipRiverRaise: "e",
     addAllInThreshold: 150,
     forceAllInThreshold: 20,
     mergingThreshold: 10,

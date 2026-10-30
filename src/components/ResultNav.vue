@@ -241,8 +241,14 @@
 
 <script setup lang="ts">
 import { computed, nextTick, toRefs, ref, watch } from "vue";
-import { useSavedConfigStore } from "../store";
+import {
+  useSavedConfigStore,
+  useConfigStore,
+  saveConfigTmp,
+  saveConfig,
+} from "../store";
 import { cardText, average, colorString } from "../utils";
+import { localSolver } from "../utils/localSolver";
 import * as invokes from "../invokes";
 
 import {
@@ -363,13 +369,22 @@ const isSelectedChanceSkipped = computed(() => {
 });
 
 const currentBoard = computed(() => {
-  const board = [...config.board];
+  if (localSolver.board && localSolver.board.length >= 3) {
+    return [...localSolver.board];
+  }
+  const liveConfig = useConfigStore();
+  const board =
+    config.board && config.board.length >= 3
+      ? [...config.board]
+      : liveConfig.board && liveConfig.board.length >= 3
+      ? [...liveConfig.board]
+      : [48, 36, 12];
   const endIndex = selectedChance.value
     ? selectedChanceIndex.value
     : selectedSpotIndex.value;
   for (let i = 3; i < endIndex; ++i) {
     const spot = spots.value[i];
-    if (spot.type === "chance") {
+    if (spot && spot.type === "chance") {
       const card = spot.selectedIndex;
       if (card !== -1) board.push(card);
       else return board;
@@ -389,15 +404,31 @@ let totalBetAmountAppended = [0, 0];
 watch(isHandlerUpdated, async () => {
   if (!isHandlerUpdated.value) return;
 
-  const l = config.board.length;
+  const liveConfig = useConfigStore();
+  const boardToUse =
+    config.board && config.board.length >= 3
+      ? [...config.board]
+      : liveConfig.board && liveConfig.board.length >= 3
+      ? [...liveConfig.board]
+      : [48, 36, 12];
+  const potToUse = config.startingPot || liveConfig.startingPot || 5;
+  const stackToUse = config.effectiveStack || liveConfig.effectiveStack || 98;
+
+  config.$patch({
+    board: boardToUse,
+    startingPot: potToUse,
+    effectiveStack: stackToUse,
+  });
+
+  const l = boardToUse.length;
   const spot: SpotRoot = {
     type: "root",
     index: 0,
     player: l === 3 ? "flop" : l === 4 ? "turn" : "river",
     selectedIndex: -1,
-    board: config.board,
-    pot: config.startingPot,
-    stack: config.effectiveStack,
+    board: boardToUse,
+    pot: potToUse,
+    stack: stackToUse,
   };
   spots.value = [spot];
 
@@ -415,7 +446,7 @@ const selectSpot = async (
     (!needSplice &&
       ((spotIndex === selectedSpotIndex.value && !fromDeal) ||
         spotIndex === selectedChanceIndex.value ||
-        (spots.value[spotIndex].type === "chance" &&
+        (spots.value[spotIndex]?.type === "chance" &&
           isSelectedChanceSkipped.value &&
           spotIndex > selectedChanceIndex.value)))
   ) {
@@ -577,17 +608,22 @@ const selectSpot = async (
 
   // update action rates if necessary
   const spot = spots.value[selectedSpotIndexTmp];
-  if (spot.type === "player" && selectedChanceIndexTmp === -1) {
+  if (spot && spot.type === "player" && selectedChanceIndexTmp === -1) {
     const playerIndex = spot.player === "oop" ? 0 : 1;
     if (results.isEmpty & (1 << playerIndex)) {
       rates.value = null;
     } else {
-      const n = props.cards[playerIndex].length;
-      rates.value = Array.from({ length: spot.actions.length }, (_, i) => {
-        if (!results) throw new Error("null results");
-        const rates = results.strategy.slice(i * n, (i + 1) * n);
-        return average(rates, results.normalizer[playerIndex]);
-      });
+      const n = props.cards[playerIndex]?.length || 0;
+      if (n === 0 || !results.strategy || results.strategy.length === 0) {
+        rates.value = null;
+      } else {
+        rates.value = Array.from({ length: spot.actions.length }, (_, i) => {
+          if (!results) throw new Error("null results");
+          const rateSlice = results.strategy.slice(i * n, (i + 1) * n);
+          const norm = results.normalizer?.[playerIndex] || [];
+          return norm.length > 0 ? average(rateSlice, norm) : 0;
+        });
+      }
     }
   } else {
     rates.value = null;
@@ -776,16 +812,63 @@ const play = async (spotIndex: number, actionIndex: number) => {
 };
 
 const deal = async (card: number) => {
-  const spot = selectedChance.value;
-  if (!spot) throw new Error("null spot");
+  let spot = selectedChance.value;
+
+  if (!spot) {
+    const chanceIndex = spots.value.findIndex((s) => s.type === "chance");
+    if (chanceIndex !== -1) {
+      selectedChanceIndex.value = chanceIndex;
+      spot = spots.value[chanceIndex] as SpotChance;
+    } else {
+      try {
+        const p1 = spots.value.find((s) => s.type === "player" && s.index === 1) as SpotPlayer | undefined;
+        if (p1 && p1.selectedIndex === -1) {
+          await play(1, 0); // Check
+        }
+        const p2 = spots.value.find((s) => s.type === "player" && s.index === 2) as SpotPlayer | undefined;
+        if (p2 && p2.selectedIndex === -1) {
+          await play(2, 0); // Check
+        }
+        const newChanceIndex = spots.value.findIndex((s) => s.type === "chance");
+        if (newChanceIndex !== -1) {
+          selectedChanceIndex.value = newChanceIndex;
+          spot = spots.value[newChanceIndex] as SpotChance;
+        }
+      } catch (e) {
+        console.warn("Could not advance to chance node automatically:", e);
+      }
+    }
+  }
+
+  if (!spot) {
+    localSolver.dealNextCard(card);
+    const updatedBoard = [...localSolver.board];
+    config.board = updatedBoard;
+    saveConfigTmp();
+    saveConfig();
+    const newRes = localSolver.getResults();
+    results = newRes;
+    emit(
+      "trigger-update",
+      spots.value[0],
+      null,
+      updatedBoard,
+      newRes,
+      null,
+      [0, 0]
+    );
+    return;
+  }
 
   isDealing.value = true;
 
-  if (spot.selectedIndex !== -1) {
+  if (spot.selectedIndex !== -1 && spot.cards[spot.selectedIndex]) {
     spot.cards[spot.selectedIndex].isSelected = false;
   }
-  spot.cards[card].isSelected = true;
-  spot.selectedIndex = card;
+  if (spot.cards[card]) {
+    spot.cards[card].isSelected = true;
+    spot.selectedIndex = card;
+  }
 
   await selectSpot(selectedSpotIndex.value, false, true);
 };
@@ -862,4 +945,18 @@ const spotCards = (spot: SpotRoot | SpotChance) => {
     return [cardText(spot.selectedIndex)];
   }
 };
+
+const reloadCurrentSpot = async () => {
+  if (selectedSpotIndex.value >= 0) {
+    await selectSpot(selectedSpotIndex.value, true, true);
+  }
+};
+
+defineExpose({
+  spots,
+  selectedSpotIndex,
+  selectSpot,
+  deal,
+  reloadCurrentSpot,
+});
 </script>

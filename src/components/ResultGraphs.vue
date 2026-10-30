@@ -355,10 +355,9 @@ const verticalLinePlugin: Plugin<"line"> = {
 const strategyItems = computed(() => {
   if (!tupleData.value || playerIndex.value === -1) return [];
 
-  const numActions = props.results.numActions;
-  const actionColors = (props.selectedSpot as SpotPlayer).actions.map(
-    (a) => a.color
-  );
+  const numActions = props.results?.numActions || 0;
+  const spot = props.selectedSpot as SpotPlayer;
+  const actionColors = spot?.actions ? spot.actions.map((a) => a.color) : [];
 
   return tupleData.value[playerIndex.value].map((tuple) => {
     let bgImage = "linear-gradient(to top";
