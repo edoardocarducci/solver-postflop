@@ -949,6 +949,8 @@ const spotCards = (spot: SpotRoot | SpotChance) => {
 const reloadCurrentSpot = async () => {
   if (selectedSpotIndex.value >= 0) {
     await selectSpot(selectedSpotIndex.value, true, true);
+  } else if (spots.value.length > 1) {
+    await selectSpot(1, true, true);
   }
 };
 

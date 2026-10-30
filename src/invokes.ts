@@ -28,7 +28,7 @@ const syncLocalRangeFromString = (p: number, str: string) => {
 const ensureSolverInit = () => {
   if (
     localSolver.privateCards[0].length === 0 ||
-    localSolver.weights[0].every((w) => w === 0)
+    localSolver.preflopWeights[0].length === 0
   ) {
     try {
       const config = useConfigStore();
@@ -206,7 +206,7 @@ const mockInvoke = async (cmd: string, args?: Record<string, unknown>): Promise<
         if (store.ranges[0].some((w) => w > 0)) oopRange = store.ranges[0];
         if (store.ranges[1].some((w) => w > 0)) ipRange = store.ranges[1];
       } catch {}
-      localSolver.init(board, startingPot, effectiveStack, oopRange, ipRange);
+      localSolver.init(board, startingPot, effectiveStack, oopRange, ipRange, true);
       return null;
     }
     case "game_allocate_memory":
@@ -529,7 +529,7 @@ export const gameInit = async (
     if (store.ranges[0].some((w) => w > 0)) oopRange = store.ranges[0];
     if (store.ranges[1].some((w) => w > 0)) ipRange = store.ranges[1];
   } catch {}
-  localSolver.init(board, startingPot, effectiveStack, oopRange, ipRange);
+  localSolver.init(board, startingPot, effectiveStack, oopRange, ipRange, true);
 
   return await safeInvoke("game_init", {
     board,

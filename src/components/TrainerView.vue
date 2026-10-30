@@ -118,6 +118,13 @@
             </strong>
           </div>
           <button
+            class="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition shadow flex items-center gap-1.5"
+            @click="showRunoutHeatmap = true"
+          >
+            <span>🗺️</span>
+            <span>Runout Heatmap</span>
+          </button>
+          <button
             class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition shadow flex items-center gap-1.5"
             @click="showRangeModal = true"
           >
@@ -303,12 +310,23 @@
             </div>
           </div>
 
-          <button
-            class="px-4 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 font-bold text-xs transition"
-            @click="advanceStreetOrHand"
-          >
-            {{ advanceButtonLabel }}
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="pendingStreetAdvance && !isHandOver && tableBoard.length < 5"
+              class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 font-bold text-xs transition shadow flex items-center gap-1.5"
+              @click="showCardPicker = true"
+            >
+              <span>🎴</span>
+              <span>Scegli {{ tableBoard.length === 3 ? 'Turn' : 'River' }}</span>
+            </button>
+            <button
+              class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-bold text-xs transition shadow flex items-center gap-1.5"
+              @click="advanceStreetOrHand"
+            >
+              <span>⚡</span>
+              <span>{{ advanceButtonLabel }}</span>
+            </button>
+          </div>
         </div>
 
         <!-- Action Buttons -->
@@ -336,13 +354,92 @@
         :spot-title="spotName"
         @close="showRangeModal = false"
       />
+
+      <!-- Runout Heatmap Modal -->
+      <RunoutHeatmap
+        v-if="showRunoutHeatmap"
+        :chance-reports="localSolver.getChanceReports()"
+        :current-board="tableBoard"
+        :starting-pot="currentPot"
+        @close="showRunoutHeatmap = false"
+        @deal-card="onDealCardFromHeatmap"
+      />
+
+      <!-- Interactive Runout Card Picker Modal -->
+      <div
+        v-if="showCardPicker"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm select-none"
+      >
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl flex flex-col text-white">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">🎴</span>
+              <div>
+                <h3 class="font-bold text-base text-slate-100">
+                  Scegli la Carta del {{ tableBoard.length === 3 ? 'Turn' : 'River' }}
+                </h3>
+                <p class="text-xs text-slate-400">
+                  Clicca una carta per testare il runout desiderato (flush draw, board pair, overcard, blank).
+                </p>
+              </div>
+            </div>
+            <button
+              class="text-slate-400 hover:text-white text-xl font-bold transition"
+              @click="showCardPicker = false"
+            >
+              &times;
+            </button>
+          </div>
+
+          <!-- Cards Grid: 4 suits x 13 ranks -->
+          <div class="my-4 space-y-2">
+            <div
+              v-for="sIdx in [3, 2, 1, 0]"
+              :key="sIdx"
+              class="flex items-center gap-1.5 justify-center"
+            >
+              <span class="w-6 text-center font-bold text-base" :class="suitColors[sIdx]">
+                {{ suitSymbols[sIdx] }}
+              </span>
+              <button
+                v-for="r in [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]"
+                :key="r"
+                :disabled="isCardDead(4 * r + sIdx)"
+                :class="[
+                  'w-9 h-11 rounded border flex flex-col items-center justify-center font-bold text-xs transition',
+                  isCardDead(4 * r + sIdx)
+                    ? 'bg-slate-950 text-slate-700 border-slate-900 cursor-not-allowed opacity-30'
+                    : 'bg-white hover:bg-slate-100 border-slate-300 shadow hover:scale-105 active:scale-95 cursor-pointer'
+                ]"
+                @click="dealRunoutCard(4 * r + sIdx)"
+              >
+                <span :class="isCardDead(4 * r + sIdx) ? 'text-slate-700' : suitColors[sIdx]">
+                  {{ rankSymbols[r] }}
+                </span>
+                <span :class="isCardDead(4 * r + sIdx) ? 'text-slate-700' : suitColors[sIdx]" class="text-[10px]">
+                  {{ suitSymbols[sIdx] }}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-slate-800 flex justify-end">
+            <button
+              class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              @click="showCardPicker = false"
+            >
+              Chiudi
+            </button>
+          </div>
+        </div>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
-import { cardText } from "../utils";
+import { cardText, cardPairCellIndex } from "../utils";
 import { useStore, useConfigStore } from "../store";
 import { localSolver } from "../utils/localSolver";
 import { evaluateCombo } from "../utils/handCategorizer";
@@ -351,12 +448,32 @@ import { getLastSolvedSpot } from "../utils/heatmapStorage";
 import * as invokes from "../invokes";
 import { parsePioRangePercent } from "../utils/rangeParser";
 import TrainerRangeModal from "./TrainerRangeModal.vue";
+import RunoutHeatmap from "./RunoutHeatmap.vue";
 
 const store = useStore();
 const configStore = useConfigStore();
 
 const showRangeModal = ref(false);
+const showRunoutHeatmap = ref(false);
+const showCardPicker = ref(false);
 const lastSavedSpot = ref(getLastSolvedSpot());
+
+const rankSymbols = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"];
+const suitSymbols = ["♣", "♦", "♥", "♠"];
+const suitColors = [
+  "text-green-500",
+  "text-blue-500",
+  "text-rose-500",
+  "text-slate-200",
+];
+
+const isCardDead = (card: number): boolean => {
+  return (
+    tableBoard.value.includes(card) ||
+    heroHoleCards.value.includes(card) ||
+    villainHoleCards.value.includes(card)
+  );
+};
 
 interface ActionBtn {
   id: string;
@@ -395,6 +512,8 @@ const villainRole = computed(() => (currentHeroRole.value === "BB" ? "SB" : "BB"
 const villainActionMessage = ref("");
 
 const spotName = computed(() => {
+  const spot = getLastSolvedSpot();
+  if (spot && spot.title) return spot.title;
   return "6-Max Cash 100bb";
 });
 
@@ -519,6 +638,76 @@ const quickSolveStandardSpot = async () => {
   startNewHand();
 };
 
+const getPlayerSpotRange = (pIdx: number): number[] => {
+  if (
+    store.ranges &&
+    store.ranges[pIdx] &&
+    store.ranges[pIdx].length === 169 &&
+    store.ranges[pIdx].some((w) => w > 0)
+  ) {
+    return store.ranges[pIdx];
+  }
+  const preset = BUILTIN_SIX_MAX_SPOTS[0];
+  const pioStr = pIdx === 0 ? preset.oopRange : preset.ipRange;
+  return parsePioRangePercent(pioStr);
+};
+
+// Strictly samples hole card pairs present in the player's active spot range with positive frequency
+const sampleComboFromSpotRange = (
+  pIdx: number,
+  excludedCards: Set<number>
+): number[] => {
+  const rangeMatrix = getPlayerSpotRange(pIdx);
+  const maxRangeVal =
+    rangeMatrix && rangeMatrix.length > 0 ? Math.max(...rangeMatrix, 0) : 0;
+  const scale = maxRangeVal > 1.001 ? 0.01 : 1.0;
+
+  const validCombos: { c1: number; c2: number; weight: number }[] = [];
+  let totalWeight = 0;
+
+  for (let c1 = 0; c1 < 52; c1++) {
+    if (excludedCards.has(c1)) continue;
+    for (let c2 = c1 + 1; c2 < 52; c2++) {
+      if (excludedCards.has(c2)) continue;
+
+      const { row, col } = cardPairCellIndex(c1, c2);
+      const cellIdx = row * 13 + col;
+      const rawW =
+        rangeMatrix && rangeMatrix[cellIdx] !== undefined ? rangeMatrix[cellIdx] : 0;
+      const w = rawW * scale;
+
+      // Strictly combos present in this spot's range with positive weight
+      if (w > 0.005) {
+        validCombos.push({ c1, c2, weight: w });
+        totalWeight += w;
+      }
+    }
+  }
+
+  if (validCombos.length === 0 || totalWeight <= 0) {
+    // If range is completely blocked or empty, fallback to first available unblocked pair
+    for (let c1 = 0; c1 < 52; c1++) {
+      if (excludedCards.has(c1)) continue;
+      for (let c2 = c1 + 1; c2 < 52; c2++) {
+        if (excludedCards.has(c2)) continue;
+        return [c1, c2];
+      }
+    }
+    return [51, 47];
+  }
+
+  let rand = Math.random() * totalWeight;
+  for (const combo of validCombos) {
+    rand -= combo.weight;
+    if (rand <= 0) {
+      return [combo.c1, combo.c2];
+    }
+  }
+
+  const last = validCombos[validCombos.length - 1];
+  return [last.c1, last.c2];
+};
+
 const startNewHand = () => {
   if (!store.isSolverFinished) return;
 
@@ -536,11 +725,24 @@ const startNewHand = () => {
     currentHeroRole.value = userRole.value === "OOP" ? "BB" : "SB";
   }
 
-  // Base board from solver
+  // Base flop board from solver
   tableBoard.value = localSolver.initialBoard.slice(0, 3);
   if (tableBoard.value.length < 3) {
     tableBoard.value = [48, 36, 12];
   }
+
+  const oopRange = getPlayerSpotRange(0);
+  const ipRange = getPlayerSpotRange(1);
+
+  // Sync solver ranges and board
+  localSolver.init(
+    tableBoard.value,
+    configStore.startingPot || 5.5,
+    configStore.effectiveStack || 97.5,
+    oopRange,
+    ipRange,
+    false
+  );
 
   // Reset solver history
   trainerHistory.value = [];
@@ -549,80 +751,13 @@ const startNewHand = () => {
   const heroIdx = currentHeroRole.value === "BB" ? 0 : 1;
   const villainIdx = heroIdx === 0 ? 1 : 0;
 
-  // 1. Sample Hero's combo STRICTLY from Hero's positive-weight range
-  const heroCards = localSolver.privateCards[heroIdx];
-  const heroWeights = localSolver.preflopWeights[heroIdx];
+  // 1. Sample Hero's combo STRICTLY from Hero's spot range (excluding table board)
+  const heroExcluded = new Set(tableBoard.value);
+  heroHoleCards.value = sampleComboFromSpotRange(heroIdx, heroExcluded);
 
-  const validHeroIndices: number[] = [];
-  let totalHeroWeight = 0;
-
-  for (let i = 0; i < heroCards.length; i++) {
-    const w = heroWeights[i] || 0;
-    if (w > 0.005) {
-      validHeroIndices.push(i);
-      totalHeroWeight += w;
-    }
-  }
-
-  if (validHeroIndices.length === 0) {
-    heroHoleCards.value = [51, 47]; // As Kh
-  } else {
-    let rand = Math.random() * totalHeroWeight;
-    let chosenIdx = validHeroIndices[0];
-    for (const idx of validHeroIndices) {
-      rand -= heroWeights[idx];
-      if (rand <= 0) {
-        chosenIdx = idx;
-        break;
-      }
-    }
-    const pair = heroCards[chosenIdx];
-    heroHoleCards.value = [pair & 0xff, pair >>> 8];
-  }
-
-  // 2. Sample Villain's combo strictly from Villain's range excluding Hero and Board cards
-  const villainCards = localSolver.privateCards[villainIdx];
-  const villainWeights = localSolver.preflopWeights[villainIdx];
-  const heroCardSet = new Set(heroHoleCards.value);
-  const boardCardSet = new Set(tableBoard.value);
-
-  const validVillainIndices: number[] = [];
-  let totalVillainWeight = 0;
-
-  for (let i = 0; i < villainCards.length; i++) {
-    const pair = villainCards[i];
-    const c1 = pair & 0xff;
-    const c2 = pair >>> 8;
-    if (
-      heroCardSet.has(c1) ||
-      heroCardSet.has(c2) ||
-      boardCardSet.has(c1) ||
-      boardCardSet.has(c2)
-    ) {
-      continue;
-    }
-    const w = villainWeights[i] || 0;
-    if (w > 0.005) {
-      validVillainIndices.push(i);
-      totalVillainWeight += w;
-    }
-  }
-
-  if (validVillainIndices.length > 0) {
-    let randV = Math.random() * totalVillainWeight;
-    let chosenVIdx = validVillainIndices[0];
-    for (const idx of validVillainIndices) {
-      randV -= villainWeights[idx];
-      if (randV <= 0) {
-        chosenVIdx = idx;
-        break;
-      }
-    }
-    const vPair = villainCards[chosenVIdx];
-    villainHoleCards.value = [vPair & 0xff, vPair >>> 8];
-  } else {
-    villainHoleCards.value = [];
-  }
+  // 2. Sample Villain's combo STRICTLY from Villain's spot range (excluding board & Hero cards)
+  const villainExcluded = new Set([...tableBoard.value, ...heroHoleCards.value]);
+  villainHoleCards.value = sampleComboFromSpotRange(villainIdx, villainExcluded);
 
   // 3. Opening flop action based on positions
   if (heroIdx === 1) {
@@ -870,39 +1005,11 @@ const simulateVillainResponse = () => {
   }
 };
 
-const advanceStreetOrHand = () => {
-  if (isHandOver.value) {
-    startNewHand();
-    return;
-  }
-
-  const heroIdx = currentHeroRole.value === "BB" ? 0 : 1;
-
-  if (pendingFacingVillainAction.value) {
-    pendingFacingVillainAction.value = false;
-    lastDecision.value = null;
-    loadCurrentActions(heroIdx);
-    return;
-  }
-
-  if (tableBoard.value.length >= 5) {
-    resolveShowdown();
-    return;
-  }
-
-  // Advance Street: Deal Turn or River card
+const executeStreetDeal = (nextCard: number) => {
   lastDecision.value = null;
   pendingStreetAdvance.value = false;
-
-  const usedCards = new Set([
-    ...tableBoard.value,
-    ...heroHoleCards.value,
-    ...villainHoleCards.value,
-  ]);
-  let nextCard = Math.floor(Math.random() * 52);
-  while (usedCards.has(nextCard)) {
-    nextCard = Math.floor(Math.random() * 52);
-  }
+  showCardPicker.value = false;
+  showRunoutHeatmap.value = false;
 
   trainerHistory.value.push(nextCard);
   localSolver.applyHistory(trainerHistory.value);
@@ -931,6 +1038,50 @@ const advanceStreetOrHand = () => {
     }
     loadCurrentActions(1);
   }
+};
+
+const dealRunoutCard = (card: number) => {
+  if (isCardDead(card)) return;
+  executeStreetDeal(card);
+};
+
+const onDealCardFromHeatmap = (card: number) => {
+  if (isCardDead(card)) return;
+  executeStreetDeal(card);
+};
+
+const advanceStreetOrHand = () => {
+  if (isHandOver.value) {
+    startNewHand();
+    return;
+  }
+
+  const heroIdx = currentHeroRole.value === "BB" ? 0 : 1;
+
+  if (pendingFacingVillainAction.value) {
+    pendingFacingVillainAction.value = false;
+    lastDecision.value = null;
+    loadCurrentActions(heroIdx);
+    return;
+  }
+
+  if (tableBoard.value.length >= 5) {
+    resolveShowdown();
+    return;
+  }
+
+  // Advance Street: Deal Turn or River card
+  const usedCards = new Set([
+    ...tableBoard.value,
+    ...heroHoleCards.value,
+    ...villainHoleCards.value,
+  ]);
+  let nextCard = Math.floor(Math.random() * 52);
+  while (usedCards.has(nextCard)) {
+    nextCard = Math.floor(Math.random() * 52);
+  }
+
+  executeStreetDeal(nextCard);
 };
 
 const decisionBannerClass = (grade: DecisionResult["grade"]) => {

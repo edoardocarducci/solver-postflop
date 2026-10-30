@@ -547,15 +547,18 @@ export class LocalSolverEngine {
     startingPot: number,
     effectiveStack: number,
     oopRange: number[],
-    ipRange: number[]
+    ipRange: number[],
+    clearLocks = false
   ) {
     this.initialBoard = [...board];
     this.board = [...board];
     this.startingPot = startingPot || 5.0;
     this.effectiveStack = effectiveStack || 97.5;
     this.history = [];
-    this.lockedStrategies.clear();
-    this.lockVersion.value++;
+    if (clearLocks) {
+      this.lockedStrategies.clear();
+      this.lockVersion.value++;
+    }
 
     // Generate valid private cards for OOP and IP (excluding board cards)
     const boardSet = new Set(this.initialBoard);
@@ -591,7 +594,7 @@ export class LocalSolverEngine {
         const w =
           rangeMatrix && rangeMatrix[cellIdx] !== undefined && maxRangeVal > 0
             ? rangeMatrix[cellIdx] * scale
-            : 0.8;
+            : 0;
         this.preflopWeights[p][i] = w;
         this.weights[p][i] = w;
       }
@@ -1061,7 +1064,12 @@ export class LocalSolverEngine {
       }
 
       for (let i = 0; i < numHands; i++) {
-        if (this.weights[pIdx][i] <= 0) {
+        const pair = pairs[i];
+        const c1 = pair & 0xff;
+        const c2 = pair >>> 8;
+
+        // Skip combos physically blocked by any community card
+        if (this.board.includes(c1) || this.board.includes(c2)) {
           for (let a = 0; a < numActions; a++) {
             this.strategy[a * numHands + i] = 0;
             this.actionEv[a * numHands + i] = 0;
@@ -1069,8 +1077,24 @@ export class LocalSolverEngine {
           continue;
         }
 
-        const eq = this.equity[pIdx][i];
+        const preflopW = this.preflopWeights[pIdx]?.[i] ?? 0;
+        const currentW = this.weights[pIdx]?.[i] ?? 0;
+
+        // If never in preflop range and has no weight, zero out
+        if (preflopW <= 0.0001 && currentW <= 0.0001) {
+          for (let a = 0; a < numActions; a++) {
+            this.strategy[a * numHands + i] = 0;
+            this.actionEv[a * numHands + i] = 0;
+          }
+          continue;
+        }
+
         const evalRes = boardEvals[i];
+        const eq =
+          this.equity[pIdx][i] > 0
+            ? this.equity[pIdx][i]
+            : calcComboEquity(c1, c2, this.board, evalRes, texture);
+
         const strats = this.getComboStrategy(
           pIdx,
           i,
@@ -1096,7 +1120,10 @@ export class LocalSolverEngine {
           }
         }
 
-        const baseEv = this.ev[pIdx][i];
+        const baseEv =
+          this.ev[pIdx][i] > 0
+            ? this.ev[pIdx][i]
+            : Math.round(nodePot * eq * 100) / 100;
         let weightedNodeEv = 0;
 
         for (let a = 0; a < numActions; a++) {
@@ -1125,6 +1152,15 @@ export class LocalSolverEngine {
     actionWeights: number[],
     targetPlayer?: "oop" | "ip"
   ) {
+    if (!this.privateCards[0] || this.privateCards[0].length === 0) {
+      this.init(
+        this.board.length >= 3 ? this.board : [48, 36, 12],
+        this.startingPot || 5.0,
+        this.effectiveStack || 97.5,
+        this.preflopWeights[0] || [],
+        this.preflopWeights[1] || []
+      );
+    }
     const pIdx = targetPlayer
       ? (targetPlayer === "ip" ? 1 : 0)
       : (this.currentNode.currentPlayer === "oop" ? 0 : 1);
