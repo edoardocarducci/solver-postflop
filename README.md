@@ -1,126 +1,146 @@
-# Desktop Postflop
+# Solver Postflop
 
-> [!IMPORTANT]
-> **As of October 2023, I have started developing a poker solver as a business and have decided to suspend development of this open-source project. See [this issue] for more information.**
+<p align="center">
+  <strong>Modern, 100% Offline Desktop GTO Texas Hold'em Solver & Interactive Training Suite</strong>
+</p>
 
-[this issue]: https://github.com/b-inary/postflop-solver/issues/46
+<p align="center">
+  <img src="https://img.shields.io/badge/Tauri-1.5-blue?logo=tauri&logoColor=white" alt="Tauri">
+  <img src="https://img.shields.io/badge/Rust-Nightly%20%2F%20AVX2-red?logo=rust&logoColor=white" alt="Rust">
+  <img src="https://img.shields.io/badge/Vue-3.3-green?logo=vuedotjs&logoColor=white" alt="Vue 3">
+  <img src="https://img.shields.io/badge/TypeScript-5.2-blue?logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/License-AGPL%203.0-orange" alt="License">
+</p>
 
 ---
 
-**Desktop Postflop** is a free, open-source GTO solver for Texas hold'em poker.
+## Overview
 
-This is a port of [WASM Postflop] to a native desktop application using the [Tauri] framework.
-Since WASM Postflop works on web browsers, it is more suitable for casual use.
-However, if you want to use the solver for more serious purposes, please consider trying Desktop Postflop.
+**Solver Postflop** is a high-performance, open-source Game Theory Optimal (GTO) Texas Hold'em poker solver and interactive study platform designed for serious players and researchers.
 
-[WASM Postflop]: https://github.com/b-inary/wasm-postflop
-[Tauri]: https://tauri.app/
+Running completely locally as a native desktop application powered by **Rust** and **Tauri** with a reactive **Vue 3 + Tailwind CSS** frontend, Solver Postflop provides zero-latency analysis, complete offline privacy, and unlimited solving without recurring cloud subscription fees.
 
-**Related repositories**
-- Solver engine: https://github.com/b-inary/postflop-solver
+---
 
-## Comparison to WASM Postflop
+## Key Features & Implementations
 
-- **Shared features**:
-  - Free to use and open-source
-  - Same solver engine and user interface
-- **Advantages**:
-  - Faster computation
-  - Able to use more than 4GB of memory
-- **Disadvantages**:
-  - Needs to download the program and trust the execution
-  - macOS builds are not distributed (you need to build the app yourself)
+### 1. Interactive GTO Trainer Mode (`TrainerView.vue`)
+- **Real-Time Play Against Solver**: Practice postflop decisions in simulated Heads-Up scenarios against pre-computed or on-demand solved GTO trees.
+- **RNG Roll Simulation**: Integrated 1–100 random number generator badge to assist in playing exact mixed-frequency strategies.
+- **Instant Decision Feedback & EV Loss**:
+  - Automatically calculates $\Delta\text{EV} = \max_a \text{EV}(a) - \text{EV}(a_{\text{chosen}})$.
+  - Classifies decisions using industry-standard thresholds:
+    - **Best Move**: Maximum EV action / zero EV loss.
+    - **Correct**: Mixed viable strategy ($\Delta\text{EV} < 0.5\%$ pot, frequency $\ge 5\%$).
+    - **Inaccuracy**: Minor EV deviation ($0.5\% \le \Delta\text{EV} < 1.5\%$ pot).
+    - **Mistake**: Notable error ($1.5\% \le \Delta\text{EV} < 3.0\%$ pot).
+    - **Blunder**: Critical error ($\Delta\text{EV} \ge 3.0\%$ pot or $0\%$ frequency).
+- **Post-Action Review & Matrix Overlay**: Inspect the full 13×13 strategy matrix immediately after each street action.
+- **Session Tracking**: Real-time tracking of hands played, GTO score percentage, average EV loss in bb/100, and an interactive list of blunders to review.
 
-See the [WASM Postflop repository] for more detailed comparisons, including some commercial solvers.
+### 2. Preloaded Spot Selector & Range Library (`HUSpotSelector.vue`)
+- **1-Click Spot Setup**: Instant setup for Heads-Up (SB/BTN vs BB) and 6-Max spot presets without manual range input.
+- **Multi-Depth & Pot Type Coverage**:
+  - Pot Types: Single Raised Pot (**SRP**), **3-Bet**, **4-Bet**, and Limped / Check pots.
+  - Stack Depths: 20bb, 25bb, 40bb, 50bb, 75bb, and 100bb.
+- **Automatic Configuration**: Instantly seeds starting pot, effective stacks, OOP/IP ranges, and standard postflop sizing trees.
 
-[WASM Postflop repository]: https://github.com/b-inary/wasm-postflop#comparison
+### 3. Node Locking & Exploitative Solving (`NodeLockModal.vue`)
+- **Custom Opponent Tendencies**: Lock specific villain actions or entire strategy distributions at any node in the game tree.
+- **CFR Recalculation**: Re-run Discounted CFR iterations to compute the mathematically optimal exploitative counter-strategy and quantify the EV gain.
 
-## Supported environments
+### 4. Runout Heatmaps (`RunoutHeatmap.vue`)
+- **Complete Turn & River Runout Visualization**: Visual 49-card matrix showing strategic shifts across every possible upcoming board card.
+- **Equity & EV Transitions**: Quickly identify which turn or river cards heavily favor Hero or Villain, check-raise runouts, and favorable barrel textures.
 
-- OS
-  - Windows: 10/11
-  - macOS: 11.7 and later
-    - We do not distribute macOS builds because we are not enrolled in the Apple Developer Program and cannot sign the app (please see the "Build" section below and build it yourself).
-  - Linux: glibc 2.31 and later (e.g., Ubuntu 20.04 and later)
-- CPU
-  - x86-64: must support AVX2 instructions
-    - Intel: Haswell (2013) and later
-    - AMD: Zen (1st gen; 2017) and later
-    - If you have a CPU without AVX2 support, you can modify `src-tauri/.cargo/config.toml` and build it yourself.
-  - Apple silicon: M1 and later
+### 5. Hand Category Breakdown (`CategoryBreakdown.vue` & `handCategorizer.ts`)
+- **Granular Range Decomposition**: Automatically classifies player holdings into structured hand classes (Straight Flush, Quads, Full House, Sets, Overpairs, Top Pairs, Middle/Low Pairs, Flush Draws, OESD, Gutshots, Air).
+- **Action Frequency Distribution**: See at a glance what percentage of each hand category checks, calls, bets small, or bets large.
 
-## Download
+### 6. Range vs Range Comparison (`RangeVsRangeModal.vue` & `ActionInfobar.vue`)
+- **Side-by-Side Matrix Viewer**: Compare OOP vs IP ranges, equity distribution bars, and expected value side by side.
+- **Combo Count & Sizing Details**: Quick inspection of surviving combos and bet sizing allocations.
 
-You can download the app from the [GitHub releases page].
+### 7. Local Spot Persistence & Convergence Logging (`SavedSpotsModal.vue` & `SolverLogConsole.vue`)
+- **Local Storage Integration**: Save solved trees, spot notes, and runouts to local IndexedDB (via Dexie) for offline recall.
+- **Live Convergence Metrics**: Real-time console displaying Discounted CFR iterations, exploitability gap (Nash distance in % of pot), elapsed time, and memory utilization.
 
-[GitHub releases page]: https://github.com/b-inary/desktop-postflop/releases
+---
 
-- Windows
-  - The installer version (.msi) automatically installs dependent runtimes.
-  - The portable version (.exe) requires the [WebView2 runtime] to be installed.
-    - In most cases, the runtime should already be installed on Windows 10/11.
-- Linux
-  - AppImage should work on most Linux distributions.
-  - Alternatively, the .deb package is available for Debian-based distributions, including Ubuntu.
+## Architecture & Technology Stack
 
-[WebView2 runtime]: https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section
+| Component | Technology | Description |
+|---|---|---|
+| **GUI Framework** | [Tauri](https://tauri.app/) (v1.5) | Ultra-lightweight native webview bridge with minimal memory footprint |
+| **Frontend UI** | [Vue 3](https://vuejs.org/) + [TypeScript](https://www.typescriptlang.org/) | Reactive Composition API, Pinia state management |
+| **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Modern responsive UI with dark/light theme support |
+| **Charts & Visuals** | [Chart.js](https://www.chartjs.org/) & `vue-chartjs` | Strategy and equity graphs |
+| **Local Database** | [Dexie.js](https://dexie.org/) | Fast client-side persistence for spots and trees |
+| **Solver Backend** | [Rust](https://www.rust-lang.org/) (Nightly) | Multi-threaded CFR solver leveraging AVX2 SIMD instructions |
 
-## Uninstall
+---
 
-On Windows, please remove the following folder after the regular uninstallation to completely uninstall Desktop Postflop:
+## Supported Environments
 
-```
-C:\Users\<username>\AppData\Local\b-inary.desktop-postflop
-```
+- **Operating System**:
+  - Windows: 10 / 11 (64-bit)
+  - Linux: glibc 2.31 and later (Ubuntu 20.04+, Debian, Arch, Fedora)
+  - macOS: macOS 11.7 (Big Sur) and later (x86_64 and Apple Silicon)
+- **CPU Requirements**:
+  - x86_64 architecture with **AVX2** support (Intel Haswell 2013+ / AMD Zen 2017+).
+  - Apple Silicon (M1 / M2 / M3 / M4) via native ARM compilation.
 
-## Build
+---
 
-[Rust] and [Node.js] need to be installed to build.
-On Linux, you will also need to install some dependencies; please see the [Tauri documentation] for details.
-For better performance, we also recommend installing the Rust nightly channel:
+## Getting Started
+
+### Prerequisites
+1. **Node.js** (v18 or newer) and `npm`
+2. **Rust** (Nightly channel recommended for maximum solver speed):
+   ```sh
+   rustup install nightly
+   rustup default nightly
+   ```
+3. Platform-specific build prerequisites:
+   - **Windows**: [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (pre-installed on Windows 10/11).
+   - **Linux**: Standard Tauri dependencies (`libgtk-3-dev`, `libwebkit2gtk-4.0-dev`, `librsvg2-dev`).
+
+### Installation & Development
+
+1. Clone the repository:
+   ```sh
+   git clone https://github.com/edoardocarducci/solver-postflop.git
+   cd solver-postflop
+   ```
+
+2. Install dependencies:
+   ```sh
+   npm install
+   ```
+
+3. Run the development server with live reload:
+   ```sh
+   npm run tauri dev
+   ```
+
+### Building for Production
+
+To build a standalone executable:
 
 ```sh
-$ rustup install nightly
-$ rustup default nightly
+npm run build
+npm run tauri build
 ```
 
-Then clone this reporitory and run the following commands:
+The compiled binaries will be output to:
+- **Windows**: `src-tauri/target/release/bundle/msi/` or standalone `.exe` in `src-tauri/target/release/`
+- **Linux**: `src-tauri/target/release/bundle/deb/` and `.AppImage`
+- **macOS**: `src-tauri/target/release/bundle/dmg/`
 
-```sh
-$ npm install
-$ npm run tauri build
-```
+---
 
-If the build was successful, you should be able to find the application in the `src-tauri/target/release/bundle/` directory.
+## License & Credits
 
-If you want to use stable Rust instead of nightly Rust, please modify the following line in `src-tauri/Cargo.toml` (performance will be sacrificed):
-
-```diff
-[dependencies]
-...
-- postflop-solver = { git = "https://github.com/b-inary/postflop-solver", features = ["custom-alloc"] }
-+ postflop-solver = { git = "https://github.com/b-inary/postflop-solver" }
-```
-
-[Rust]: https://www.rust-lang.org/learn/get-started
-[Node.js]: https://nodejs.org/en/
-[Tauri documentation]: https://tauri.app/v1/guides/getting-started/prerequisites/#setting-up-linux
-
-## ~~Roadmap (in order of priority)~~
-
-- Results saving/loading feature ([#8](https://github.com/b-inary/desktop-postflop/issues/8))
-- Hand filter feature for the result viewer ([#6](https://github.com/b-inary/desktop-postflop/issues/6))
-- Node-locking feature
-- Short deck support
-- Aggregated reporting feature for multiple flops
-- GTO training mode ([#9](https://github.com/b-inary/desktop-postflop/issues/9))
-
-## License
-
-Copyright (C) 2022 Wataru Inariba
-
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.
+- **License**: Released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+- **Core Engine & Base UI**: Originally inspired by and porting the core algorithm from `postflop-solver` and `desktop-postflop` (Copyright (C) 2022 Wataru Inariba).
+- **Solver Postflop Suite Extensions**: Extended with GTO Trainer mode, Heads-Up range suite, node locking, runout heatmaps, and advanced study analytics by **Edoardo Carducci**.
